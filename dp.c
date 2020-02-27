@@ -6,112 +6,86 @@
 // Number of philosophers
 #define COUNT 5
 
-typedef enum { thinking, hungry, eating } state;
+int chopsticks[COUNT];
+pthread_cond_t cond = PTHREAD_COND_INITIALIZER;
+pthread_mutex_t mutex = PTHREAD_MUTEX_INITIALIZER;
 
-int forks[COUNT];
-state states[COUNT];
-
-/* Sets the fork for the philosopher to 1 with race condition prevention. */
-void pickup_forks(long pnum)
+/* Makes the philosopher pick up their chopsticks and eat for a random amount of time. */
+void eat(long pnum)
 {
-	pthread_mutex_t mutex;
-	pthread_cond_t cond;
-	int num = rand() % 3 + 1;
-	char *second = num > 1 ? "seconds" : "second";
+	int num = rand() % 5 + 1;
 
-	pthread_mutex_init(&mutex, NULL);
-	pthread_cond_init(&cond, NULL);
-	printf("Philosopher %ld is eating for %d %s\n", pnum, num, second);
+	printf("Philosopher %ld is hungry\n", pnum);
 
-	// Lock resource so we don't have a race condition.
 	pthread_mutex_lock(&mutex);
-	forks[pnum] = 1;
-	states[pnum] = eating;
+
+	// Wait for both chopsticks to be available.
+	if(pnum == 5)
+		while(chopsticks[pnum] == 1 || chopsticks[0] == 1)	
+			pthread_cond_wait(&cond, &mutex);
+	else
+		while(chopsticks[pnum] == 1 || chopsticks[pnum + 1] == 1)
+			pthread_cond_wait(&cond, &mutex);
+
+	// Change state of philosopher's chopsticks.
+	chopsticks[pnum] = 1;	
+	if(pnum == 5)
+		chopsticks[0] = 1;
+	else
+		chopsticks[pnum + 1] = 1;
 
 	// Signal resource was modified.
 	pthread_cond_signal(&cond);
 	pthread_mutex_unlock(&mutex);
-
+	
+	printf("Philosopher %ld is eating for %d %s\n", pnum, num, num > 1 ? "seconds" : "second");
 	sleep(num);
 }
 
-/* Sets the fork for the philosopher to 0 with race condition prevention. */ 
-void return_forks(long pnum)
+/* Makes the philosophers return the chopsticks and think for a random amount of time. */ 
+void think(long pnum)
 {
-	pthread_mutex_t mutex;
-	pthread_cond_t cond;
-
-	pthread_mutex_init(&mutex, NULL);
-        pthread_cond_init(&cond, NULL);
+	int num = rand() % 5 + 1;
 	
 	// Lock resource so we don't have a race condition.
 	pthread_mutex_lock(&mutex);
-	forks[pnum] = 0;
-	states[pnum] = thinking;
+	chopsticks[pnum] = 0;
+	if(pnum == 5)
+		chopsticks[0] = 0;
+	else
+		chopsticks[pnum + 1] = 0;
 
 	// Signal resource was modified.
 	pthread_cond_signal(&cond);
 	pthread_mutex_unlock(&mutex);
+
+	printf("Philosopher %ld is thinking for %d %s\n", pnum, num, num > 1 ? "seconds" : "second");
+	sleep(num);
 }
 
 /* Function for thread to execute. */
 void *thread_exec(void* param)
 {
-	pthread_mutex_t mutex;
-	pthread_cond_t cond;	
-	int num;
-	char *second;
-	int count = 0;
 	long pnum = (long)param;
 
-	pthread_mutex_init(&mutex, NULL);
-	pthread_cond_init(&cond, NULL);
-
-	// Infinite loop to make philosopher think, hungry, and call the fork functions.
-	while(count < 5)
+	// Infinite loop to make philosohers eat and think.
+	while(1)
 	{
-		num = rand() % 3 + 1;
-	
-		second = num > 1 ? "seconds" : "second";
-
-		printf("Philosopher %ld is thinking for %d %s\n", pnum, num, second);
-		sleep(num);
-		printf("Philosopher %ld is hungry\n", pnum);
-
-		// Lock resource until the philosopher is eating.
-		pthread_mutex_lock(&mutex);
-		pickup_forks(pnum);
-
-		while (states[pnum] != eating)
-			pthread_cond_wait(&mutex, &cond);
-
-		pthread_mutex_unlock(&mutex);
-		
-		// Lock resource until the philosopher is thinking.	
-		pthread_mutex_lock(&mutex);
-		return_forks(pnum);
-
-		while(states[pnum] != thinking)
-			pthread_cond_wait(&mutex, &cond);
-
-		pthread_mutex_unlock(&mutex);
-		count++;
+		eat(pnum);
+		think(pnum);
 	}
-
-	pthread_exit(NULL);
 }
 
 int main()
 {
 	pthread_t philosophers[COUNT];
 	long i;
-	int temp, rc;
 
 	srand(time(NULL));
 	
-	// Initialize forks bitmap.
+	// Initialize chopsticks to the unused state.
 	for(i = 0; i < COUNT; i++)
-		states[i] = forks[i] = 0;
+		chopsticks[i] = 0;
 
 	// Spawn threads.
 	for(i = 0; i < COUNT; i++)
